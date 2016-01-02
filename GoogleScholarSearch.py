@@ -22,6 +22,13 @@ import Article
 
 IntegerPattern = re.compile('\s+\d+\s*') # Expects at least one whitespace in front the integer. May be followed by a whtitespace too.
 
+headers = {'User-Agent': 'Mozilla/5.0', # Just pretend to be a Mozilla. (X11; Linux x86_64) AppleWebKit/537.11 (KHTML, like Gecko) Chrome/23.0.1271.64 Safari/537.11
+   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+   'Accept-Charset': 'ISO-8859-1,utf-8;q=0.7,*;q=0.3',
+   'Accept-Encoding': 'none',
+   'Accept-Language': 'en-US,en;q=0.8',
+   'Connection': 'keep-alive'}
+       
 class GoogleScholarSearchEngine:
     """ This class searches Google Scholar (http://scholar.google.com)
 
@@ -124,13 +131,6 @@ class GoogleScholarSearchEngine:
         ----------
         IOError when the connection to Google Scholar cannot be established.
         """
-        headers = {'User-Agent': 'Mozilla/5.0', # Just pretend to be a Mozilla. (X11; Linux x86_64) AppleWebKit/537.11 (KHTML, like Gecko) Chrome/23.0.1271.64 Safari/537.11
-       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-       'Accept-Charset': 'ISO-8859-1,utf-8;q=0.7,*;q=0.3',
-       'Accept-Encoding': 'none',
-       'Accept-Language': 'en-US,en;q=0.8',
-       'Connection': 'keep-alive'}
-
         conn = httplib.HTTPConnection(self.SEARCH_HOST, timeout=30)
         conn.request("GET", url, body=None, headers=headers)
         resp = conn.getresponse()
@@ -162,6 +162,8 @@ class GoogleScholarSearchEngine:
                         pubTitle = allAs[0].text
                         
                     " Get the articles citing and related to this one. "
+                    citingArticlesURL = "UNKNOWN" # Initialise in case something goes wrong in parsing and this will be undefined.
+                    relatedArticlesURL = "UNKNOWN"#TOOO these won't always be found, why?
                     for a in allAs:
                         if "Cited by" in a.text:
                             pubNoCitations = int(  IntegerPattern.findall(a.text)[0] )
@@ -181,7 +183,11 @@ class GoogleScholarSearchEngine:
                     " Get journal name, publication year, and authors' list. "
                     # Assume that the fields are delimited by ' - ', the first entry will be the
                     # list of authors, the last entry is the journal URL. We also have journal name and year there.
-                    pubJournalYear = int(IntegerPattern.findall(authorPart)[0]) # We might get other integers, but not preceded by whitespaces.
+                    try: #TODO this IntegerPattern will sometimes fail here.
+                        pubJournalYear = int(IntegerPattern.findall(authorPart)[0]) # We might get other integers, but not preceded by whitespaces.
+                    except IndexError:
+                        print authorPart
+                        pubJournalYear=9999
                     
                     idx_start = authorPart.find(' - ') # Here the authors' list ends.
                     idx_end = authorPart.rfind(' - ') # Here the journal's public URL starts.
@@ -204,6 +210,7 @@ class GoogleScholarSearchEngine:
                     else:
                         pubAbstract = "Abstract unavailable"
                         print record#TODO see why this might trigger and maybe filter out such cases
+                            # S0metimes there simply is no abstract?
                         print "-"*10
                     
                     " Save the results. "

@@ -7,7 +7,7 @@ Created on Sun Apr 19 20:46:55 2015
 @author: alek
 """
 
-import requests, re, difflib
+import requests, re, difflib, time, numpy, httplib
 import Article, GoogleScholarSearch
 
 scholarSearchEngine = GoogleScholarSearch.GoogleScholarSearchEngine() # Convenient to search through Google Scholar.
@@ -155,15 +155,15 @@ if __name__=="__main__": # If this is run as a stand-alone script run the verifi
 #    article = scholarSearchEngine.search(tags) # Another way, also works.
 
     " Search for the desired article. "
-    theArticle = Article.Article("The Theory of Collectors in Gaseous Discharges", ["H.M. Mott-Smith", "Irving Langmuir"], 1926, "Physical Review", doi="10.1103/physrev.28.727", volume=28, number=4, citeULikeID=2534514)
+    theArticle = Article.Article("The Theory of Collectors in Gaseous Discharges", ["H.M. Mott-Smith", "Irving Langmuir"], 1926, "Physical Review", doi="10.1103/physrev.28.727", volume=28, number=4, citeULikeID=2534514) # The desired article.
     
-    # Get all the articles from the page when we look for the title.
+    # Get all the articles from the page when we look for the title of theArticle of interest.
     searchURL = "/scholar?hl=en&q=" # Now we're searching for articles.
     searchURL += theArticle.Title.replace(" ","%20") # Search by title. We can't have space in there.
     papers = scholarSearchEngine.getArticlesFromPage(searchURL, ["Mock","terms"])
     
-    # Find the article from the many that will be displayed - will define articleID.
-    articleID = 0 # Which article from the_page we're looking at.
+    # Find theArticle from the many that will be displayed - will define articleID.
+    articleID = 0 # Which article from the page is the one we're looking for.
     currentMaxCited = 0
     currentHighestAuthorSimilarity = 0
     for i in range(len(papers)): # Articles that we have to look at to match to the article.
@@ -171,14 +171,36 @@ if __name__=="__main__": # If this is run as a stand-alone script run the verifi
             if difflib.SequenceMatcher(a="".join(theArticle.Authors).lower(), b="".join(papers[i].Authors).lower()).ratio() > currentHighestAuthorSimilarity: # The authors of this article look more like the authors of the input article.
                 currentHighestAuthorSimilarity = difflib.SequenceMatcher(a="".join(theArticle.Authors).lower(), b="".join(papers[i].Authors).lower()).ratio()
                 if papers[i].pubNoCitations> currentMaxCited: # We're probably after the popular articles. Sometimes will get copies of the original article with fewer citations.
-                    articleID = i # This is probably the article we're after.
-    print "Found:\n{}\n when looking for:\n{}.".format(papers[articleID],theArticle)
-    
+                    articleID = i # This is probably theArticle we're after.
+    print "Found article:\n{}\n when looking for:\n{}.".format(papers[articleID],theArticle)
+    #TODO for some reason i only get 19 articles from a page with 20 articles
     " Get articles citing theArticle. "
     citingArticles = [] # Collect citing articles from all the result pages.
     citingArticlesURLParts = papers[articleID].citingArticlesURL.split("?") # Need to split this to be able to display different result pages.
-    for startArticleIndex in range(0,papers[articleID].pubNoCitations,20): # The first article to be displayed on the Scholar page. Go every 20 articles to limit the number of requests we send.
-        temp = scholarSearchEngine.getArticlesFromPage(citingArticlesURLParts[0]+"?"+"start={}&num=20&".format(startArticleIndex)+citingArticlesURLParts[1],papers[articleID].Keywords)
-        citingArticles.extend(temp) # Add articles from this page to the results.
+    noArticlesSoFar = 0 # How many have we downloaded so far?
     
+    for startArticleIndex in range(0,papers[articleID].pubNoCitations,20): # The first article to be displayed on the Scholar page. Go every 20 articles to limit the number of requests we send.
+        print "Looking at start index {}.".format(startArticleIndex)
+        url = citingArticlesURLParts[0]+"?"+"start={}&num=20&".format(startArticleIndex)+citingArticlesURLParts[1]
+        temp = scholarSearchEngine.getArticlesFromPage(url,papers[articleID].Keywords)
+        citingArticles.extend(temp) # Add articles from this page to the results.
+        
+        # Check if downloading is ongoing. If not, read the website to see what it says to figure out what we can do about it.
+        if len(citingArticles) > noArticlesSoFar: # We're still in business, downloading still works.
+            noArticlesSoFar = len(citingArticles)
+            print "\tGot articles from page. Currently have {} citing articles.".format(noArticlesSoFar)
+            dt = 180+numpy.random.randint(0,60,1)[0]#TODO find time spacing that will work with google. Maybe look at changing the IP address as well, but that's hard to do unless we use a VPN (we'll be known by the router address).
+            print "\tSleeping for {} seconds.".format(dt)
+            time.sleep(dt) # Wait a while to not send requests too quickly.
+        else:
+            #TODO cache the articles and reattempt dowload after google ban has expired. And rely on the user to VPN to deal with it.
+            conn = httplib.HTTPConnection(scholarSearchEngine.SEARCH_HOST, timeout=30)
+            conn.request("GET", url, body=None, headers=GoogleScholarSearch.headers)
+            resp = conn.getresponse()
+            html = resp.read()
+            html = html.decode('ascii', 'ignore')
+            raise RuntimeError("Google thinks I'm a robot, which I surely am not!")
+    
+    " Get articles related to theArticle. "
+    #TODO add a loop through results' pages and time.sleep here.
 #    relatedArticles = scholarSearchEngine.getArticlesFromPage(papers[articleID].relatedArticlesURL,papers[articleID].Keywords)
