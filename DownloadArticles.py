@@ -7,8 +7,16 @@ Created on Sun Apr 19 20:46:55 2015
 @author: alek
 """
 
-import requests, re, difflib, time, numpy, httplib
+import os, requests, re, difflib, time, numpy, httplib, subprocess
+
+try:
+    from selenium import webdriver
+except ImportError:
+    print "Instal Selenium using sudo pip install selenium. If you aren't running Unix and can't use pip then you should abandon Windows."
+
 import Article, GoogleScholarSearch
+
+CACHE_DIR = '/home/alek/Desktop/' # Will store the page sources here.
 
 scholarSearchEngine = GoogleScholarSearch.GoogleScholarSearchEngine() # Convenient to search through Google Scholar.
 
@@ -145,6 +153,30 @@ def getArticlesCiteULike(authors=[], keywords=[], yearStart=1800, yearEnd=3000, 
         
     return articles
 
+def getSourceWithFirefox(url, cacheName=None):
+    """ Get the string with the source of the website at the URL. If desired,
+    will cache the source in a text file.
+    
+    Argumets
+    ----------
+    url - str with a full URL of a website
+    cacheName - None or str, if is type str will be the name of the text file
+        where the source is going to be saved.
+        
+    Returns
+    ----------
+    str with the source of the website.
+    """
+    firefoxDriver = webdriver.Firefox() # Open Firefox.
+    
+    firefoxDriver.get(url) # Go to the page.
+    src = firefoxDriver.page_source # Get source because.
+    
+    firefoxDriver.close()
+    
+    return src
+    
+    
 if __name__=="__main__": # If this is run as a stand-alone script run the verification/example searches.
     " Example search for many articles following search terms. "
 #    authors = ["langmuir", "tonks"] # Author names.
@@ -173,7 +205,7 @@ if __name__=="__main__": # If this is run as a stand-alone script run the verifi
                 if papers[i].pubNoCitations> currentMaxCited: # We're probably after the popular articles. Sometimes will get copies of the original article with fewer citations.
                     articleID = i # This is probably theArticle we're after.
     print "Found article:\n{}\n when looking for:\n{}.".format(papers[articleID],theArticle)
-    #TODO for some reason i only get 19 articles from a page with 20 articles
+
     " Get articles citing theArticle. "
     citingArticles = [] # Collect citing articles from all the result pages.
     citingArticlesURLParts = papers[articleID].citingArticlesURL.split("?") # Need to split this to be able to display different result pages.
@@ -181,26 +213,25 @@ if __name__=="__main__": # If this is run as a stand-alone script run the verifi
     
     for startArticleIndex in range(0,papers[articleID].pubNoCitations,20): # The first article to be displayed on the Scholar page. Go every 20 articles to limit the number of requests we send.
         print "Looking at start index {}.".format(startArticleIndex)
-        url = citingArticlesURLParts[0]+"?"+"start={}&num=20&".format(startArticleIndex)+citingArticlesURLParts[1]
-        temp = scholarSearchEngine.getArticlesFromPage(url,papers[articleID].Keywords)
-        citingArticles.extend(temp) # Add articles from this page to the results.
+        url = "https://scholar.google.com"+citingArticlesURLParts[0]+"?"+"start={}&num=20&".format(startArticleIndex)+citingArticlesURLParts[1]
+        print url#TODO cache the sources.
+        src = getSourceWithFirefox(url) # Get the source of the website.
+        with open(os.path.join(CACHE_DIR,"GoogleScholarSearchCache{}".format(startArticleIndex)),"w") as cacheFile:
+            cacheFile.write(src.encode('ascii', 'ignore')) # Convert src from unicode to something, which can be written to a file.
         
-        # Check if downloading is ongoing. If not, read the website to see what it says to figure out what we can do about it.
-        if len(citingArticles) > noArticlesSoFar: # We're still in business, downloading still works.
-            noArticlesSoFar = len(citingArticles)
-            print "\tGot articles from page. Currently have {} citing articles.".format(noArticlesSoFar)
-            dt = 180+numpy.random.randint(0,60,1)[0]#TODO find time spacing that will work with google. Maybe look at changing the IP address as well, but that's hard to do unless we use a VPN (we'll be known by the router address).
+        if not "Please show you\'re not a robot" in src: # Searching still works.
+            #TODO get articles from src here.
+            temp = scholarSearchEngine.getArticlesFromPage(url,papers[articleID].Keywords) #TODO for some reason i only get 19 articles from a page with 20 articles
+            citingArticles.extend(temp) # Add articles from this page to the results.
+        
+            print "Got artciles from results page no. {}".format(i)
+            dt = 60+numpy.random.randint(0,60,1)[0]
             print "\tSleeping for {} seconds.".format(dt)
-            time.sleep(dt) # Wait a while to not send requests too quickly.
-        else:
-            #TODO cache the articles and reattempt dowload after google ban has expired. And rely on the user to VPN to deal with it.
-            conn = httplib.HTTPConnection(scholarSearchEngine.SEARCH_HOST, timeout=30)
-            conn.request("GET", url, body=None, headers=GoogleScholarSearch.headers)
-            resp = conn.getresponse()
-            html = resp.read()
-            html = html.decode('ascii', 'ignore')
-            raise RuntimeError("Google thinks I'm a robot, which I surely am not!")
-    
+            time.sleep(dt) # Wait a while to not send requests too quickly
+        else: # Let the user know they have to convince Google they're a human.
+            proc = subprocess.Popen(['zenity', '--info', '--text="Please show Google that you are not a robot and click OK to continue downloading articles."'])
+            proc.wait() # Wait for the user to click OK having shown that they're human.
+        
     " Get articles related to theArticle. "
     #TODO add a loop through results' pages and time.sleep here.
 #    relatedArticles = scholarSearchEngine.getArticlesFromPage(papers[articleID].relatedArticlesURL,papers[articleID].Keywords)

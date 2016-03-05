@@ -61,4 +61,4 @@ class Article(object):
         self.Abstract = abstract
         
     def __str__(self):
-        return "{}, {} ({})".format(self.Authors, self.Title, self.Year)
+        return "{}, {}, {} ({})".format(self.Authors, self.Title, self.Journal, self.Year)
