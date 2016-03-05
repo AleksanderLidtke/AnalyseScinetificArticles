@@ -120,7 +120,7 @@ class GoogleScholarSearchEngine:
         ----------
         @param url - str, URL to be appended to the self.SEARCH_HOST (i.e. scholar.google.com)
             to get to the results page (example: /scholar?q=related:X7dZ0Xg524gJ:scholar.google.com/&hl=en&as_sdt=0,5)
-        @param limit - int, maximum number of results to be returned (default=10).
+        @param searchTerms - list of strings that we'll search for.
         
         Returns
         ----------
