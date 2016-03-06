@@ -274,11 +274,8 @@ def getArticlesFromSource(source, searchTerms):
         abstractDiv = record.find('div',attrs={'class':'gs_rs'}) # Abstract info sits here.
         if not abstractDiv is None:
             pubAbstract = abstractDiv.text
-        else:
-            pubAbstract = "Abstract unavailable"
-            print record#TODO see why this might trigger and maybe filter out such cases
-                # Sosmetimes there simply is no abstract?
-            print "-"*10
+        else: # Sometimes there simply is no abstract.
+            pubAbstract = "Abstract unavailable" # Can't conjure it.
         
         " Save the results. "
         results.append( Article.Article(pubTitle,map(str,pubAuthors.split(',')),pubJournalYear,pubJournalName,tagList=searchTerms,abstract=pubAbstract) )
