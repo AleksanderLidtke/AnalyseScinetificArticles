@@ -251,10 +251,9 @@ def getArticlesFromSource(source, searchTerms):
         " Get journal name, publication year, and authors' list. "
         # Assume that the fields are delimited by ' - ', the first entry will be the
         # list of authors, the last entry is the journal URL. We also have journal name and year there.
-        try: #TODO this IntegerPattern will sometimes fail here.
+        try: # Sometimes there simply is no year associated to some entires.
             pubJournalYear = int(GoogleScholarSearch.IntegerPattern.findall(authorPart)[0]) # We might get other integers, but not preceded by whitespaces.
-        except IndexError:
-            print authorPart
+        except IndexError: # Not much I can do about it...
             pubJournalYear=9999
         
         idx_start = authorPart.find(' - ') # Here the authors' list ends.
