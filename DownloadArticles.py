@@ -216,83 +216,80 @@ def getArticlesFromSource(source, searchTerms):
     results = [] # Store the articles here.
     
     for record in soup.find_all('div',{'class': 'gs_r'}):#soup('p', {'class': 'g'}):
-        if "[CITATION]" in record.text: # This isn't an actual article.
-            continue
+        allAs = record.find_all('a') # All <a></a> fields corresponding to this article.
+
+        " Get the public URL and the title, maybe full text URL if we're lucky. "
+        if len( allAs[0].find_all("span") ): # The first <a> has some <span> children.
+            fullURL = allAs[0].attrs['href'] # URL to the full text in HTML or PDF format (typically).
+            pubURL = allAs[1].attrs['href'] # This will be the public URL one gets when they click on the title.
+            pubTitle = allAs[1].text # Public URL has the title of the article as text.
+        else: # The first <a> of the result is the one with the title and public URL.
+            fullURL = "Unavailable" # No full text for this article... :(
+            pubURL = allAs[0].attrs['href']
+            pubTitle = allAs[0].text
+            
+        " Get the articles citing and related to this one. "
+        citingArticlesURL = "UNKNOWN" # Initialise in case something goes wrong in parsing and this will be undefined.
+        relatedArticlesURL = "UNKNOWN"#TOOO these won't always be found, why?
+        pubNoCitations = 0
+        for a in allAs:
+            if "Cited by" in a.text:
+                pubNoCitations = int(  GoogleScholarSearch.IntegerPattern.findall(a.text)[0] )
+                citingArticlesURL = a.attrs['href'] # Articles that cite this one.
+            elif "Related articles" in a.text:
+                relatedArticlesURL = a.attrs['href'] # URL to the related articles.
+        
+        " Get the authors; they're displayed in green, use it. "
+        authorPart = record.find('div',attrs={'class':'gs_a'}).text #record.first('font', {'color': 'green'}).string
+        if authorPart is None:    
+            authorPart = ''
+            # Sometimes even BeautifulSoup can fail, fall back to regex.
+            m = re.findall('<font color="green">(.*)</font>', str(record))
+            if len(m)>0:
+                authorPart = m[0]
+
+        " Get journal name, publication year, and authors' list. "
+        # Assume that the fields are delimited by ' - ', the first entry will be the
+        # list of authors, the last entry is the journal URL. We also have journal name and year there.
+        try: #TODO this IntegerPattern will sometimes fail here.
+            pubJournalYear = int(GoogleScholarSearch.IntegerPattern.findall(authorPart)[0]) # We might get other integers, but not preceded by whitespaces.
+        except IndexError:
+            print authorPart
+            pubJournalYear=9999
+        
+        idx_start = authorPart.find(' - ') # Here the authors' list ends.
+        idx_end = authorPart.rfind(' - ') # Here the journal's public URL starts.
+        idx_jrnlNameEnd = authorPart.rfind(',') # After the journal name.
+        
+        pubJournalName = authorPart[idx_start:idx_jrnlNameEnd].lstrip().lstrip("-")
+        
+        pubAuthors = authorPart[:idx_start]                
+        pubJournalURL = authorPart[idx_end + 3:]
+        # If (only one ' - ' is found) and (the end bit contains '\d\d\d\d')
+        # then the last bit is journal year instead of journal URL
+        if pubJournalYear=='' and re.search('\d\d\d\d', pubJournalURL)!=None:
+            pubJournalYear = pubJournalURL
+            pubJournalURL = 'Unavailable'
+        
+        " Get the abstract. "
+        abstractDiv = record.find('div',attrs={'class':'gs_rs'}) # Abstract info sits here.
+        if not abstractDiv is None:
+            pubAbstract = abstractDiv.text
         else:
-            allAs = record.find_all('a') # All <a></a> fields corresponding to this article.
-
-            " Get the public URL and the title, amybe full text URL if we're lucky. "
-            if len( allAs[0].find_all("span") ): # The first <a> has some <span> children.
-                fullURL = allAs[0].attrs['href'] # URL to the full text in HTML or PDF format (typically).
-                pubURL = allAs[1].attrs['href'] # This will be the public URL one gets when they click on the title.
-                pubTitle = allAs[1].text # Public URL has the title of the article as text.
-            else: # The first <a> of the result is the one with the title and public URL.
-                fullURL = "Unavailable" # No full text for this article... :(
-                pubURL = allAs[0].attrs['href']
-                pubTitle = allAs[0].text
-                
-            " Get the articles citing and related to this one. "
-            citingArticlesURL = "UNKNOWN" # Initialise in case something goes wrong in parsing and this will be undefined.
-            relatedArticlesURL = "UNKNOWN"#TOOO these won't always be found, why?
-            pubNoCitations = 0
-            for a in allAs:
-                if "Cited by" in a.text:
-                    pubNoCitations = int(  GoogleScholarSearch.IntegerPattern.findall(a.text)[0] )
-                    citingArticlesURL = a.attrs['href'] # Articles that cite this one.
-                elif "Related articles" in a.text:
-                    relatedArticlesURL = a.attrs['href'] # URL to the related articles.
-            
-            " Get the authors; they're displayed in green, use it. "
-            authorPart = record.find('div',attrs={'class':'gs_a'}).text #record.first('font', {'color': 'green'}).string
-            if authorPart is None:    
-                authorPart = ''
-                # Sometimes even BeautifulSoup can fail, fall back to regex.
-                m = re.findall('<font color="green">(.*)</font>', str(record))
-                if len(m)>0:
-                    authorPart = m[0]
-
-            " Get journal name, publication year, and authors' list. "
-            # Assume that the fields are delimited by ' - ', the first entry will be the
-            # list of authors, the last entry is the journal URL. We also have journal name and year there.
-            try: #TODO this IntegerPattern will sometimes fail here.
-                pubJournalYear = int(GoogleScholarSearch.IntegerPattern.findall(authorPart)[0]) # We might get other integers, but not preceded by whitespaces.
-            except IndexError:
-                print authorPart
-                pubJournalYear=9999
-            
-            idx_start = authorPart.find(' - ') # Here the authors' list ends.
-            idx_end = authorPart.rfind(' - ') # Here the journal's public URL starts.
-            idx_jrnlNameEnd = authorPart.rfind(',') # After the journal name.
-            
-            pubJournalName = authorPart[idx_start:idx_jrnlNameEnd].lstrip().lstrip("-")
-            
-            pubAuthors = authorPart[:idx_start]                
-            pubJournalURL = authorPart[idx_end + 3:]
-            # If (only one ' - ' is found) and (the end bit contains '\d\d\d\d')
-            # then the last bit is journal year instead of journal URL
-            if pubJournalYear=='' and re.search('\d\d\d\d', pubJournalURL)!=None:
-                pubJournalYear = pubJournalURL
-                pubJournalURL = 'Unavailable'
-            
-            " Get the abstract. "
-            abstractDiv = record.find('div',attrs={'class':'gs_rs'}) # Abstract info sits here.
-            if not abstractDiv is None:
-                pubAbstract = abstractDiv.text
-            else:
-                pubAbstract = "Abstract unavailable"
-                print record#TODO see why this might trigger and maybe filter out such cases
-                    # S0metimes there simply is no abstract?
-                print "-"*10
-            
-            " Save the results. "
-            results.append( Article.Article(pubTitle,map(str,pubAuthors.split(',')),pubJournalYear,pubJournalName,tagList=searchTerms,abstract=pubAbstract) )
-            # All the URLs.
-            results[-1].fullURL = fullURL
-            results[-1].pubURL = pubURL
-            results[-1].citingArticlesURL = citingArticlesURL
-            results[-1].relatedArticlesURL = relatedArticlesURL
-            # This might be useful to something, e.g. seeing whcih publications have the most impact.
-            results[-1].pubNoCitations = pubNoCitations
+            pubAbstract = "Abstract unavailable"
+            print record#TODO see why this might trigger and maybe filter out such cases
+                # Sosmetimes there simply is no abstract?
+            print "-"*10
+        
+        " Save the results. "
+        results.append( Article.Article(pubTitle,map(str,pubAuthors.split(',')),pubJournalYear,pubJournalName,tagList=searchTerms,abstract=pubAbstract) )
+        # All the URLs.
+        results[-1].fullURL = fullURL
+        results[-1].pubURL = pubURL
+        results[-1].citingArticlesURL = citingArticlesURL
+        results[-1].relatedArticlesURL = relatedArticlesURL
+        # This might be useful to something, e.g. seeing whcih publications have the most impact.
+        results[-1].pubNoCitations = pubNoCitations
         
     return results # If everything's gone smoothly...
     
@@ -331,17 +328,17 @@ if __name__=="__main__": # If this is run as a stand-alone script run the verifi
     noArticlesSoFar = 0 # How many have we downloaded so far?
 
     for startArticleIndex in range(0,papers[articleID].pubNoCitations,20): # The first article to be displayed on the Scholar page. Go every 20 articles to limit the number of requests we send.
-        print "Looking at start index {}.".format(startArticleIndex)
+#        print "Looking at start index {}.".format(startArticleIndex)
         url = "https://scholar.google.com"+citingArticlesURLParts[0]+"?"+"start={}&num=20&".format(startArticleIndex)+citingArticlesURLParts[1]
-        print url
+
         try: # Try to get the cached source in the first instance.
             with open(os.path.join(CACHE_DIR,url.lstrip('https://scholar.google.com/scholar?')),"r") as cacheFile:
                 src=cacheFile.read()
-                print "Got citing artciles starting on article index {} from cache".format(startArticleIndex)
+#                print "Got citing artciles starting on article index {} from cache. Currently have {} citingArticles.".format(startArticleIndex,len(citingArticles))
         except IOError: # No cache file - retrieve source with Firefox.
             src = getSourceWithFirefox(url) # Get the source of the website.
             src = src.encode('ascii', 'ignore') # Convert src from unicode to something, which can be written to a file.
-            print "Got citing artciles starting on article index {} from the web".format(startArticleIndex)
+#            print "Got citing artciles starting on article index {} from the web. Currently have {} citingArticles.".format(startArticleIndex,len(citingArticles))
             with open(os.path.join(CACHE_DIR,url.lstrip('https://scholar.google.com/scholar?')),"w") as cacheFile:
                 cacheFile.write(src)
                 dt = 60+numpy.random.randint(0,60,1)[0]
@@ -349,11 +346,11 @@ if __name__=="__main__": # If this is run as a stand-alone script run the verifi
                 time.sleep(dt) # Wait a while to not send requests too quickly
             
         if not "Please show you\'re not a robot" in src: # Searching still works.
-            #TODO get articles from src here.
-            temp = getArticlesFromSource(src,papers[articleID].Keywords) #TODO for some reason i only get 19 articles from a page with 20 articles
+            temp = getArticlesFromSource(src,papers[articleID].Keywords) #TODO Check if I get all the articles now that I don't treat [CITATION]s any differently.
+            
             citingArticles.extend(temp) # Add articles from this page to the results.
-        
-            print "\tParsed citing artciles starting on article index {}".format(startArticleIndex)
+            print len(temp),startArticleIndex
+#            print "\tParsed citing artciles starting on article index {}".format(startArticleIndex)
             
         else: # Let the user know they have to convince Google they're a human.
             proc = subprocess.Popen(['zenity', '--info', '--text="Please show Google that you are not a robot and click OK to continue downloading articles."'])
@@ -366,7 +363,7 @@ if __name__=="__main__": # If this is run as a stand-alone script run the verifi
                 cacheFile.write(src)
             temp = getArticlesFromSource(src,papers[articleID].Keywords)
             citingArticles.extend(temp)
-            print "Got citing artciles starting on article index {} from the web".format(startArticleIndex)
+#            print "Got citing artciles starting on article index {} from the web. Currently have {} citingArticles.".format(startArticleIndex,len(citingArticles))
         
     " Get articles related to theArticle. "
     #TODO add a loop through results' pages and time.sleep here.
