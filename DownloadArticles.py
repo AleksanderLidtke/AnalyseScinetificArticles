@@ -299,65 +299,40 @@ def getArticlesFromSource(source, searchTerms):
         results[-1].pubNoCitations = pubNoCitations
             
     return results # If everything's gone smoothly...
-    
-if __name__=="__main__": # If this is run as a stand-alone script run the verification/example searches.
-    " Example search for many articles following search terms. "
-#    authors = ["langmuir", "tonks"] # Author names.
-#    tags = ["langmuir", "probe"] # Tags we want to look for.
-#    years = (1900,2015) # Year brackets we're interested in.
-#    isbn = "none"
-#    articles = getArticlesCiteULike(authors, tags, years[0], years[1], isbn) # One way, seems to be more restrictive because we can specify additional criteria, like min and max year etc.
-#    article = scholarSearchEngine.search(tags) # Another way, also works.
 
-    " Search for the desired article. "
-    theArticle = Article.Article("The Theory of Collectors in Gaseous Discharges", ["H.M. Mott-Smith", "Irving Langmuir"], 1926, "Physical Review", doi="10.1103/physrev.28.727", volume=28, number=4, citeULikeID=2534514) # The desired article.
+def getCitingArticles(targetArticle,cacheDir):
+    """ Get all the articles citing an Article. Try to use cached websites
+    and cache them on the way.
     
-    # Get all the articles from the page when we look for the title of theArticle of interest.
-    # as_sdt=0,5 should only return articles, but it returns everything?
-    searchURL = "/scholar?hl=en&as_sdt=0,5&q=" # Now we're searching for articles only (as_sdt=0,5).
-    searchURL += theArticle.Title.replace(" ","%20") # Search by title. We can't have space in there.
-    try: # Sometimes captcha might kick in here.
-        papers = scholarSearchEngine.getArticlesFromPage(searchURL, ["Mock","terms"])
-    except RuntimeError as rntmeerr:
-        if "Please show you&#39;re not a robot" in rntmeerr.message:
-            raise RuntimeError("Cannot find the base article due to captcha restriction.")
-        else: # No idea what happened, print the whole source of the site.
-            raise rntmeerr    
+    Arguments
+    ----------
+    @param targetArticle - and instance of an Article, will get the Articles
+        that cite it.
     
-    # Find theArticle from the many that will be displayed - will define articleID.
-    articleID = 0 # Which article from the page is the one we're looking for.
-    currentMaxCited = 0
-    currentHighestAuthorSimilarity = 0
-    for i in range(len(papers)): # Articles that we have to look at to match to the article.
-        if theArticle.Year==papers[i].Year: # This article is from the same year, promising.
-            if difflib.SequenceMatcher(a="".join(theArticle.Authors).lower(), b="".join(papers[i].Authors).lower()).ratio() > currentHighestAuthorSimilarity: # The authors of this article look more like the authors of the input article.
-                currentHighestAuthorSimilarity = difflib.SequenceMatcher(a="".join(theArticle.Authors).lower(), b="".join(papers[i].Authors).lower()).ratio()
-                if papers[i].pubNoCitations> currentMaxCited: # We're probably after the popular articles. Sometimes will get copies of the original article with fewer citations.
-                    articleID = i # This is probably theArticle we're after.
-    print "Found article:\n{}\n when looking for:\n{}.".format(papers[articleID],theArticle)
-
-    " Get articles citing theArticle. "
+    Returns
+    ----------
+    A list of Articles.
+    """
     citingArticles = [] # Collect citing articles from all the result pages.
-    citingArticlesURLParts = papers[articleID].citingArticlesURL.split("?") # Need to split this to be able to display different result pages.
-    noArticlesSoFar = 0 # How many have we downloaded so far?
+    citingArticlesURLParts = targetArticle.citingArticlesURL.split("?") # Need to split this to be able to display different result pages.
 
     # Can only display 50 pages with 20 results per page - might not be ableto get all citations.
-    noArticlesInSearch=min(50*20,papers[articleID].pubNoCitations)
+    noArticlesInSearch=min(50*20,targetArticle.pubNoCitations)
     for startArticleIndex in range(0,noArticlesInSearch,20): # The first article to be displayed on the Scholar page. Go every 20 articles to limit the number of requests we send.
         url = "https://scholar.google.com"+citingArticlesURLParts[0]+"?"+\
             "start={}&num=20&".format(startArticleIndex)+\
             citingArticlesURLParts[1].replace("as_sdt=2005","as_sdt=0,5")# as_sdt=0,5 should only return articles, but it returns everything?
 
         try: # Try to get the cached source in the first instance.
-            with open(os.path.join(CACHE_DIR,url.lstrip('https://scholar.google.com/scholar?')),"r") as cacheFile:
+            with open(os.path.join(cacheDir,url.lstrip('https://scholar.google.com/scholar?')),"r") as cacheFile:
                 src=cacheFile.read()
-                temp = getArticlesFromSource(src,papers[articleID].Keywords)
+                temp = getArticlesFromSource(src,targetArticle.Keywords)
         except IOError: # No cache file - retrieve source with Firefox.
             src = getSourceWithFirefox(url) # Get the source of the website.
             src = src.encode('ascii', 'ignore') # Convert src from unicode to something, which can be written to a file.
-            temp = getArticlesFromSource(src,papers[articleID].Keywords)
+            temp = getArticlesFromSource(src,targetArticle.Keywords)
             if not "Please show you\'re not a robot" in src and not len(temp)==0: # Don't cache robot verification or empty pages.
-                with open(os.path.join(CACHE_DIR,url.lstrip('https://scholar.google.com/scholar?')),"w") as cacheFile:
+                with open(os.path.join(cacheDir,url.lstrip('https://scholar.google.com/scholar?')),"w") as cacheFile:
                     cacheFile.write(src)
                     dt = 60+numpy.random.randint(0,60,1)[0]
                     print "\tSleeping for {} seconds.".format(dt)
@@ -379,11 +354,72 @@ if __name__=="__main__": # If this is run as a stand-alone script run the verifi
             
             # Get the actual source of the website for this batch of articles , cache it and retrieve Articles from it.
             src = src.encode('ascii', 'ignore')
-            with open(os.path.join(CACHE_DIR,url.lstrip('https://scholar.google.com/scholar?')),"w") as cacheFile:
+            with open(os.path.join(cacheDir,url.lstrip('https://scholar.google.com/scholar?')),"w") as cacheFile:
                 cacheFile.write(src)
-            temp = getArticlesFromSource(src,papers[articleID].Keywords)
-            print len(temp),startArticleIndex
+            temp = getArticlesFromSource(src,targetArticle.Keywords)
+            print "Start IDX: {}, no. articles: {}".format(startArticleIndex,len(temp))
             citingArticles.extend(temp)
+    
+    return citingArticles
+
+def findArticle(targetArticle):
+    """ Find an Article on Google Scholar that resembles the input Article
+    instance.
+    
+    Arguments
+    ----------
+    An instance of an Article that has as many fields filled in as possible.
+        Will use the Year, Title and Authors attributes to find this Article
+        on Googgle.
+    
+    Returns
+    ----------
+    An instance of Article.
+    
+    Raises
+    ----------
+    RuntimeError if cannot access Google due to catpcha restrictions.
+    """
+    # Get all the articles from the page when we look for the title of theArticle of interest.
+    # as_sdt=0,5 should only return articles, but it returns everything?
+    searchURL = "/scholar?hl=en&as_sdt=0,5&q=" # Now we're searching for articles only (as_sdt=0,5).
+    searchURL += targetArticle.Title.replace(" ","%20") # Search by title. We can't have space in there.
+    try: # Sometimes captcha might kick in here.
+        papers = scholarSearchEngine.getArticlesFromPage(searchURL, ["Mock","terms"])
+    except RuntimeError as rntmeerr:
+        if "Please show you&#39;re not a robot" in rntmeerr.message:
+            raise RuntimeError("Cannot find the base article due to captcha restriction.")
+        else: # No idea what happened, print the whole source of the site.
+            raise rntmeerr    
+    
+    # Find targetArticle from the many that will be displayed - will define articleID.
+    articleID = 0 # Which article from the page is the one we're looking for.
+    currentMaxCited = 0
+    currentHighestAuthorSimilarity = 0
+    for i in range(len(papers)): # Articles that we have to look at to match to the article.
+        if targetArticle.Year==papers[i].Year: # This article is from the same year, promising.
+            if difflib.SequenceMatcher(a="".join(targetArticle.Authors).lower(), b="".join(papers[i].Authors).lower()).ratio() > currentHighestAuthorSimilarity: # The authors of this article look more like the authors of the input article.
+                currentHighestAuthorSimilarity = difflib.SequenceMatcher(a="".join(targetArticle.Authors).lower(), b="".join(papers[i].Authors).lower()).ratio()
+                if papers[i].pubNoCitations> currentMaxCited: # We're probably after the popular articles. Sometimes will get copies of the original article with fewer citations.
+                    articleID = i # This is probably targetArticle we're after.
+    print "Found article:\n{}\n when looking for:\n{}.".format(papers[articleID],targetArticle)
+    return papers[articleID]
+
+if __name__=="__main__": # If this is run as a stand-alone script run the verification/example searches.
+    " Example search for many articles following search terms. "
+#    authors = ["langmuir", "tonks"] # Author names.
+#    tags = ["langmuir", "probe"] # Tags we want to look for.
+#    years = (1900,2015) # Year brackets we're interested in.
+#    isbn = "none"
+#    articles = getArticlesCiteULike(authors, tags, years[0], years[1], isbn) # One way, seems to be more restrictive because we can specify additional criteria, like min and max year etc.
+#    article = scholarSearchEngine.search(tags) # Another way, also works.
+
+    " Search for the desired article. "
+    theArticle = Article.Article("The Theory of Collectors in Gaseous Discharges", ["H.M. Mott-Smith", "Irving Langmuir"], 1926, "Physical Review", doi="10.1103/physrev.28.727", volume=28, number=4, citeULikeID=2534514) # The desired article.
+    
+    " Get articles citing theArticle. "
+    theFoundArticle=findArticle(theArticle)
+    citingArticles=getCitingArticles(theFoundArticle,CACHE_DIR)
         
     " Get articles related to theArticle. "
     #TODO add a loop through results' pages and time.sleep here.
