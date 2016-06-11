@@ -7,7 +7,7 @@ Created on Sun Apr 19 20:46:55 2015
 @author: alek
 """
 
-import os, requests, re, difflib, time, numpy, httplib, subprocess
+import os, requests, re, difflib, time, numpy, subprocess #, httplib
 
 try:
     from selenium import webdriver
@@ -16,7 +16,7 @@ except ImportError:
 
 import Article, GoogleScholarSearch
 
-CACHE_DIR = '/home/alek/Desktop/' # Will store the page sources here.
+CACHE_DIR = '/home/alek/Desktop/cache' # Will store the page sources here.
 
 scholarSearchEngine = GoogleScholarSearch.GoogleScholarSearchEngine() # Convenient to search through Google Scholar.
 
@@ -212,7 +212,7 @@ def getArticlesFromSource(source, searchTerms):
         @return List of Articles (@see Article.Article), or an empty list if
             nothing is found.
     """
-    soup = GoogleScholarSearch.BeautifulSoup(source)
+    soup = GoogleScholarSearch.BeautifulSoup(source, "lxml")
     results = [] # Store the articles here.
     
     for record in soup.find_all('div',{'class': 'gs_r'}):#soup('p', {'class': 'g'}):
@@ -230,7 +230,7 @@ def getArticlesFromSource(source, searchTerms):
             
         " Get the articles citing and related to this one. "
         citingArticlesURL = "UNKNOWN" # Initialise in case something goes wrong in parsing and this will be undefined.
-        relatedArticlesURL = "UNKNOWN"#TOOO these won't always be found, why?
+        relatedArticlesURL = "UNKNOWN"#TODO these won't always be found, why?
         pubNoCitations = 0
         for a in allAs:
             if "Cited by" in a.text:
@@ -302,9 +302,16 @@ if __name__=="__main__": # If this is run as a stand-alone script run the verifi
     theArticle = Article.Article("The Theory of Collectors in Gaseous Discharges", ["H.M. Mott-Smith", "Irving Langmuir"], 1926, "Physical Review", doi="10.1103/physrev.28.727", volume=28, number=4, citeULikeID=2534514) # The desired article.
     
     # Get all the articles from the page when we look for the title of theArticle of interest.
-    searchURL = "/scholar?hl=en&q=" # Now we're searching for articles.
+    # as_sdt=0,5 should only return articles, but it returns everything?
+    searchURL = "/scholar?hl=en&as_sdt=0,5&q=" # Now we're searching for articles only (as_sdt=0,5).
     searchURL += theArticle.Title.replace(" ","%20") # Search by title. We can't have space in there.
-    papers = scholarSearchEngine.getArticlesFromPage(searchURL, ["Mock","terms"])
+    try: # Sometimes captcha might kick in here.
+        papers = scholarSearchEngine.getArticlesFromPage(searchURL, ["Mock","terms"])
+    except RuntimeError as rntmeerr:
+        if "Please show you&#39;re not a robot" in rntmeerr.message:
+            raise RuntimeError("Cannot find the base article due to captcha restriction.")
+        else: # No idea what happened, print the whole source of the site.
+            raise rntmeerr    
     
     # Find theArticle from the many that will be displayed - will define articleID.
     articleID = 0 # Which article from the page is the one we're looking for.
@@ -323,43 +330,57 @@ if __name__=="__main__": # If this is run as a stand-alone script run the verifi
     citingArticlesURLParts = papers[articleID].citingArticlesURL.split("?") # Need to split this to be able to display different result pages.
     noArticlesSoFar = 0 # How many have we downloaded so far?
 
-    for startArticleIndex in range(0,papers[articleID].pubNoCitations,20): # The first article to be displayed on the Scholar page. Go every 20 articles to limit the number of requests we send.
-#        print "Looking at start index {}.".format(startArticleIndex)
-        url = "https://scholar.google.com"+citingArticlesURLParts[0]+"?"+"start={}&num=20&".format(startArticleIndex)+citingArticlesURLParts[1]
+    # Can only display 50 pages with 20 results per page - might not be ableto get all citations.
+    noArticlesInSearch=min(50*20,papers[articleID].pubNoCitations)
+    for startArticleIndex in range(0,noArticlesInSearch,20): # The first article to be displayed on the Scholar page. Go every 20 articles to limit the number of requests we send.
+        url = "https://scholar.google.com"+citingArticlesURLParts[0]+"?"+\
+            "start={}&num=20&".format(startArticleIndex)+\
+            citingArticlesURLParts[1].replace("as_sdt=2005","as_sdt=0,5")# as_sdt=0,5 should only return articles, but it returns everything?
 
         try: # Try to get the cached source in the first instance.
             with open(os.path.join(CACHE_DIR,url.lstrip('https://scholar.google.com/scholar?')),"r") as cacheFile:
                 src=cacheFile.read()
-#                print "Got citing artciles starting on article index {} from cache. Currently have {} citingArticles.".format(startArticleIndex,len(citingArticles))
+                temp = getArticlesFromSource(src,papers[articleID].Keywords)
         except IOError: # No cache file - retrieve source with Firefox.
             src = getSourceWithFirefox(url) # Get the source of the website.
             src = src.encode('ascii', 'ignore') # Convert src from unicode to something, which can be written to a file.
-#            print "Got citing artciles starting on article index {} from the web. Currently have {} citingArticles.".format(startArticleIndex,len(citingArticles))
-            with open(os.path.join(CACHE_DIR,url.lstrip('https://scholar.google.com/scholar?')),"w") as cacheFile:
-                cacheFile.write(src)
-                dt = 60+numpy.random.randint(0,60,1)[0]
-                print "\tSleeping for {} seconds.".format(dt)
-                time.sleep(dt) # Wait a while to not send requests too quickly
+            temp = getArticlesFromSource(src,papers[articleID].Keywords)
+            if not "Please show you\'re not a robot" in src and not len(temp)==0: # Don't cache robot verification or empty pages.
+                with open(os.path.join(CACHE_DIR,url.lstrip('https://scholar.google.com/scholar?')),"w") as cacheFile:
+                    cacheFile.write(src)
+                    dt = 60+numpy.random.randint(0,60,1)[0]
+                    print "\tSleeping for {} seconds.".format(dt)
+                    time.sleep(dt) # Wait a while to not send requests too quickly
             
-        if not "Please show you\'re not a robot" in src: # Searching still works.
-            temp = getArticlesFromSource(src,papers[articleID].Keywords) #TODO Check if I get all the articles now that I don't treat [CITATION]s any differently.
-            
+        if not "Please show you\'re not a robot" in src: # Searching still works - get the citing articles.
             citingArticles.extend(temp) # Add articles from this page to the results.
-            print len(temp),startArticleIndex
-#            print "\tParsed citing artciles starting on article index {}".format(startArticleIndex)
+            print "Start IDX: {}, no. articles: {}".format(startArticleIndex,len(temp))
             
-        else: # Let the user know they have to convince Google they're a human.
-            proc = subprocess.Popen(['zenity', '--info', '--text="Please show Google that you are not a robot and click OK to continue downloading articles."'])
-            proc.wait() # Wait for the user to click OK having shown that they're human.
+            #TODO deal with citations - return them separately or look for only articles
+            #citingArticles[42] is a citation and it didn't fully work (Title is wrong)
+            # same with citingArticles[47] citingArticles[73]
+            # articles have as_sdt=0,5, all citations as_sdt=2005
+            
+            #TODO fix Full View bug, which substitutes Full View for the Title.
+            # citingArticles[79] citingArticles[116] are screwed up by Full View
 
+        else: # Require manual intervention to show I'm not a robot.
+            # Use the webdriver; doing it through browsers doesn't work.
+            firefoxDriver = webdriver.Firefox()
+            firefoxDriver.get(url)
+            # Let the user know they have to convince Google they're a human.
+            proc = subprocess.Popen(['zenity', '--info', '--text=Please show Google that you are not a robot and click OK to continue downloading articles.\n\nTry to change VPN as well.'])
+            proc.wait() # Wait for the user to click OK having shown that they're human.
+            src = firefoxDriver.page_source # Get the source with the check passed (actual articles are here).
+            firefoxDriver.close()
+            
             # Get the actual source of the website for this batch of articles , cache it and retrieve Articles from it.
-            src = getSourceWithFirefox(url)
             src = src.encode('ascii', 'ignore')
             with open(os.path.join(CACHE_DIR,url.lstrip('https://scholar.google.com/scholar?')),"w") as cacheFile:
                 cacheFile.write(src)
             temp = getArticlesFromSource(src,papers[articleID].Keywords)
+            print len(temp),startArticleIndex
             citingArticles.extend(temp)
-#            print "Got citing artciles starting on article index {} from the web. Currently have {} citingArticles.".format(startArticleIndex,len(citingArticles))
         
     " Get articles related to theArticle. "
     #TODO add a loop through results' pages and time.sleep here.
