@@ -8,7 +8,7 @@ I've updated it to BeautifulSoup4 and current syntax of Google Scholar source.
 Also started saving the results in a class object for compatibility with other code.
 
 @author: Alek
-@version: 1.0.4
+@version: 1.0.5
 @since: Sat 11 Jun 2016
 
 CHANGELOG:
@@ -17,6 +17,7 @@ Mon  5 Oct 2015 - 1.0.1 - Alek - Now don't try to parse citations.
                 - 1.0.2 - Alek - Now convert authors' list to str from Unicode.
 Sat 11 Jun 2016 - 1.0.3 - Alek - Explicitly specified a parser for BeautifulSoup.
                 - 1.0.4 - Alek - Raise RuntimeError when getArticlesFromPage finds no Articles.
+                - 1.0.5 - Alek - Use BeautifulSoup to get the articles' titles.
 """
 import httplib, urllib, re
 from bs4 import BeautifulSoup
@@ -149,21 +150,29 @@ class GoogleScholarSearchEngine:
             soup = BeautifulSoup(html, "lxml")
             
             for record in soup.find_all('div',{'class': 'gs_r'}):#soup('p', {'class': 'g'}):
+            #TODO this could work better:
+            # work with record.find('div',{'class': 'gs_ri'}), which filters out full view and full text links
+            #title,pubURL in: record.find_all('div',{'class': 'gs_ri'})[0].find_all('h3',{'class': 'gs_rt'})
+                
+            #authors,journal,year record.find_all('div',{'class': 'gs_ri'})[0].find_all('div',{'class': 'gs_a'})
+#                authorsPart=record.find('div',{'class': 'gs_ri'}).find('div',{'class': 'gs_a'})
+            #abstract record.find_all('div',{'class': 'gs_ri'})[0].find_all('div',{'class': 'gs_rs'})
+#                abstractPart=record.find('div',{'class': 'gs_ri'}).find('div',{'class': 'gs_rs'})
                 if "[CITATION]" in record.text: # This isn't an actual article.
                     continue
                 else:
                     allAs = record.find_all('a') # All <a></a> fields corresponding to this article.
     
-                    " Get the public URL and the title, amybe full text URL if we're lucky. "
+                    " Get the public URL and the title, maybe full text URL if we're lucky. "
+                    titleURLPart=record.find('div',{'class': 'gs_ri'}).find('h3',{'class': 'gs_rt'})
+                    pubURL=titleURLPart.find('a').get('href')
+                    pubTitle=titleURLPart.find('a').get_text()
+                    
                     if len( allAs[0].find_all("span") ): # The first <a> has some <span> children.
                         fullURL = allAs[0].attrs['href'] # URL to the full text in HTML or PDF format (typically).
-                        pubURL = allAs[1].attrs['href'] # This will be the public URL one gets when they click on the title.
-                        pubTitle = allAs[1].text # Public URL has the title of the article as text.
                     else: # The first <a> of the result is the one with the title and public URL.
                         fullURL = "Unavailable" # No full text for this article... :(
-                        pubURL = allAs[0].attrs['href']
-                        pubTitle = allAs[0].text
-                        
+                    
                     " Get the articles citing and related to this one. "
                     citingArticlesURL = "UNKNOWN" # Initialise in case something goes wrong in parsing and this will be undefined.
                     relatedArticlesURL = "UNKNOWN"#TOOO these won't always be found, why?
@@ -213,7 +222,7 @@ class GoogleScholarSearchEngine:
                     else:
                         pubAbstract = "Abstract unavailable"
                         print record#TODO see why this might trigger and maybe filter out such cases
-                            # S0metimes there simply is no abstract?
+                            # Sometimes there simply is no abstract?
                         print "-"*10
                     
                     " Save the results. "

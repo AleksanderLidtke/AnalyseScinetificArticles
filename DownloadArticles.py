@@ -219,15 +219,26 @@ def getArticlesFromSource(source, searchTerms):
         allAs = record.find_all('a') # All <a></a> fields corresponding to this article.
 
         " Get the public URL and the title, maybe full text URL if we're lucky. "
-        if len( allAs[0].find_all("span") ): # The first <a> has some <span> children.
-            fullURL = allAs[0].attrs['href'] # URL to the full text in HTML or PDF format (typically).
-            pubURL = allAs[1].attrs['href'] # This will be the public URL one gets when they click on the title.
-            pubTitle = allAs[1].text # Public URL has the title of the article as text.
-        else: # The first <a> of the result is the one with the title and public URL.
-            fullURL = "Unavailable" # No full text for this article... :(
-            pubURL = allAs[0].attrs['href']
-            pubTitle = allAs[0].text
-            
+        if "[CITATION]" in record.text: # The 'old fashioned way' works for citations.
+            pubTitle=record.find('div',{'class': 'gs_ri'}).find('h3',{'class': 'gs_rt'}).get_text().lstrip('[CITATION][C]')
+            if len( allAs[0].find_all("span") ): # The first <a> has some <span> children.
+                fullURL = allAs[0].attrs['href'] # URL to the full text in HTML or PDF format (typically).
+                pubURL = allAs[1].attrs['href'] # This will be the public URL one gets when they click on the title.
+#                pubTitle = allAs[1].text # Public URL has the title of the article as text.
+            else: # The first <a> of the result is the one with the title and public URL.
+                fullURL = "Unavailable" # No full text for this article... :(
+                pubURL = allAs[0].attrs['href']
+#                pubTitle = allAs[0].text
+        else: # This is a neater way, but doens't work for citations
+            titleURLPart=record.find('div',{'class': 'gs_ri'}).find('h3',{'class': 'gs_rt'})
+            pubURL=titleURLPart.find('a').get('href')
+            pubTitle=titleURLPart.find('a').get_text()
+        
+            if len( allAs[0].find_all("span") ): # The first <a> has some <span> children.
+                fullURL = allAs[0].attrs['href'] # URL to the full text in HTML or PDF format (typically).
+            else: # The first <a> of the result is the one with the title and public URL.
+                fullURL = "Unavailable" # No full text for this article... :(
+
         " Get the articles citing and related to this one. "
         citingArticlesURL = "UNKNOWN" # Initialise in case something goes wrong in parsing and this will be undefined.
         relatedArticlesURL = "UNKNOWN"#TODO these won't always be found, why?
@@ -286,7 +297,7 @@ def getArticlesFromSource(source, searchTerms):
         results[-1].relatedArticlesURL = relatedArticlesURL
         # This might be useful to something, e.g. seeing whcih publications have the most impact.
         results[-1].pubNoCitations = pubNoCitations
-        
+            
     return results # If everything's gone smoothly...
     
 if __name__=="__main__": # If this is run as a stand-alone script run the verification/example searches.
@@ -355,14 +366,6 @@ if __name__=="__main__": # If this is run as a stand-alone script run the verifi
         if not "Please show you\'re not a robot" in src: # Searching still works - get the citing articles.
             citingArticles.extend(temp) # Add articles from this page to the results.
             print "Start IDX: {}, no. articles: {}".format(startArticleIndex,len(temp))
-            
-            #TODO deal with citations - return them separately or look for only articles
-            #citingArticles[42] is a citation and it didn't fully work (Title is wrong)
-            # same with citingArticles[47] citingArticles[73]
-            # articles have as_sdt=0,5, all citations as_sdt=2005
-            
-            #TODO fix Full View bug, which substitutes Full View for the Title.
-            # citingArticles[79] citingArticles[116] are screwed up by Full View
 
         else: # Require manual intervention to show I'm not a robot.
             # Use the webdriver; doing it through browsers doesn't work.
