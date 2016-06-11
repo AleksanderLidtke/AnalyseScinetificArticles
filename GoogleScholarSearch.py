@@ -8,13 +8,14 @@ I've updated it to BeautifulSoup4 and current syntax of Google Scholar source.
 Also started saving the results in a class object for compatibility with other code.
 
 @author: Alek
-@version: 1.0.2
-@since: Mon  5 Oct 2015
+@version: 1.0.3
+@since: Sat 11 Jun 2016
 
 CHANGELOG:
 Sat  3 Oct 2015 - 1.0.0 - Alek - Issued the first version based on a class from the Internet.
 Mon  5 Oct 2015 - 1.0.1 - Alek - Now don't try to parse citations.
                 - 1.0.2 - Alek - Now convert authors' list to str from Unicode.
+Sat 11 Jun 2016 - 1.0.3 - Alek - Explicitly specified a parser for BeautifulSoup.
 """
 import httplib, urllib, re
 from bs4 import BeautifulSoup
@@ -143,7 +144,7 @@ class GoogleScholarSearchEngine:
             html = resp.read()
             html = html.decode('ascii', 'ignore') # Raw HTML file of the website with the search results.
             # Screen-scrape the result to obtain the publication information
-            soup = BeautifulSoup(html)
+            soup = BeautifulSoup(html, "lxml")
             
             for record in soup.find_all('div',{'class': 'gs_r'}):#soup('p', {'class': 'g'}):
                 if "[CITATION]" in record.text: # This isn't an actual article.
