@@ -8,7 +8,7 @@ I've updated it to BeautifulSoup4 and current syntax of Google Scholar source.
 Also started saving the results in a class object for compatibility with other code.
 
 @author: Alek
-@version: 1.0.3
+@version: 1.0.4
 @since: Sat 11 Jun 2016
 
 CHANGELOG:
@@ -16,6 +16,7 @@ Sat  3 Oct 2015 - 1.0.0 - Alek - Issued the first version based on a class from 
 Mon  5 Oct 2015 - 1.0.1 - Alek - Now don't try to parse citations.
                 - 1.0.2 - Alek - Now convert authors' list to str from Unicode.
 Sat 11 Jun 2016 - 1.0.3 - Alek - Explicitly specified a parser for BeautifulSoup.
+                - 1.0.4 - Alek - Raise RuntimeError when getArticlesFromPage finds no Articles.
 """
 import httplib, urllib, re
 from bs4 import BeautifulSoup
@@ -131,6 +132,7 @@ class GoogleScholarSearchEngine:
         Raises
         ----------
         IOError when the connection to Google Scholar cannot be established.
+        RuntimeError - when no articles are found.
         """
         conn = httplib.HTTPConnection(self.SEARCH_HOST, timeout=30)
         conn.request("GET", url, body=None, headers=headers)
@@ -223,9 +225,12 @@ class GoogleScholarSearchEngine:
                     results[-1].relatedArticlesURL = relatedArticlesURL
                     # This might be useful to something, e.g. seeing whcih publications have the most impact.
                     results[-1].pubNoCitations = pubNoCitations
+            
+            if len(results)==0: # Check if we got any articles in the end.
+                raise RuntimeError("No articles found with URL: {}, source:\n{}".format(url,html))
         else:
             raise IOError("Connection can't be established. Error code: {}, Reason: {}".format(resp.status,resp.reason))
-            
+        
         return results # If everything's gone smoothly...
 
 if __name__ == '__main__':
