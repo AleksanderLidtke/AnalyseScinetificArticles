@@ -445,15 +445,26 @@ def addCitingArticlesToNetwork(allArticles,targetIdx,network,trim=None):
     trim - int or None, how many citing articles to keep, will keep all of them
         if trim is None. Will keep the first trim citing articles that are retreived.
     """
-    citingArticles=getCitingArticles(allArticles[targetIdx],CACHE_DIR) # These areticles cite the target Article
+    citingArticlesTemp=getCitingArticles(allArticles[targetIdx],CACHE_DIR) # These articles cite the target Article
+    
+    citingArticles=[] # The citing articles without the ones already in allArticles.
+    citingIndices=[] # Indices of allArticles that cite targetIdx article.
+    for tempArt in citingArticlesTemp:
+        if tempArt in allArticles:
+            citingIndices.append(allArticles.index(tempArt))
+        else:
+            citingArticles.append(tempArt)
+    
     if not trim is None: # Trim the citing articles if desired.
         citingArticles=citingArticles[:trim]
         
-    #TODO when adding edges and extending allArticles have to see which of the citingArticles already are in allArticles.
+    # Add edges between the target article and the exisitng allArticles.
+    G.add_edges_from([(targetIdx,i) for i in citingIndices])
     
-    # First add the edges to the network - need to have unchanged allArticles here.
+    # First add the edges to the citingArticless - need to have unchanged allArticles here.
     # Account for the fact that we'll extend allArticles with the citingArticles (+len(allArticles)).
     G.add_edges_from([(targetIdx,i+len(allArticles)) for i in range(len(citingArticles))])
+    
     allArticles.extend(citingArticles) # Record these here.
     
 if __name__=="__main__": # If this is run as a stand-alone script run the verification/example searches.
@@ -476,11 +487,6 @@ if __name__=="__main__": # If this is run as a stand-alone script run the verifi
     # Add more citing articles into the network.
     addCitingArticlesToNetwork(allArticles,3, G, trim=20)
     addCitingArticlesToNetwork(allArticles,4, G, trim=20)
-    
-    #TODO allArticles[3] cites both allArticles[0] and allArticles[4], should make a good test case to not reproducing entries in allArticles.
-    #https://scholar.google.co.uk/scholar?hl=en&as_sdt=2005&sciodt=0,5&cites=8829401031725111972&scipsc=
-    #https://scholar.google.co.uk/scholar?cites=2503450620904760701&as_sdt=2005&sciodt=0,5&hl=en
-    # In the present example, this means that allArticles[43] and allArticles[3] are the same.
     
     " Plot the network of who cites whom. "
     values = [art.pubNoCitations for art in allArticles] # Colour the nodes by no. citations they have.

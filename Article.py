@@ -66,8 +66,8 @@ class Article(object):
     def __eq__(self, OtherArticle):
         """
         Check if the two Articles are the same.
-        """#TODO think of equality criteria to use.
-        if OtherArticle.Title==self.Title:
+        """#TODO use difflib.SequenceMatcher to compare authors and title?
+        if OtherArticle.Title==self.Title and OtherArticle.Year==self.Year and OtherArticle.Authors==self.Authors:
             return True
         else:
             return False
@@ -75,8 +75,8 @@ class Article(object):
     def __ne__(self, OtherArticle):
         """
         Check if the two Articles are not the same.
-        """#TODO think of equality criteria to use.
-        if OtherArticle.Title==self.Title:
+        """#TODO use difflib.SequenceMatcher to compare authors and title?
+        if OtherArticle.Title==self.Title and OtherArticle.Year==self.Year and OtherArticle.Authors==self.Authors:
             return False
         else:
             return True
