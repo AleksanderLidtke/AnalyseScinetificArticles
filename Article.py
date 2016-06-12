@@ -62,3 +62,21 @@ class Article(object):
         
     def __str__(self):
         return "{}, {}, {} ({})".format(self.Authors, self.Title, self.Journal, self.Year)
+    
+    def __eq__(self, OtherArticle):
+        """
+        Check if the two Articles are the same.
+        """#TODO think of equality criteria to use.
+        if OtherArticle.Title==self.Title:
+            return True
+        else:
+            return False
+ 
+    def __ne__(self, OtherArticle):
+        """
+        Check if the two Articles are not the same.
+        """#TODO think of equality criteria to use.
+        if OtherArticle.Title==self.Title:
+            return False
+        else:
+            return True

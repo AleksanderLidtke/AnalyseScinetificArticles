@@ -7,8 +7,7 @@ Created on Sun Apr 19 20:46:55 2015
 @author: alek
 """
 
-import os, requests, re, difflib, time, numpy, subprocess #, httplib
-
+import os, requests, re, difflib, time, numpy, subprocess, networkx, matplotlib.pyplot
 try:
     from selenium import webdriver
 except ImportError:
@@ -20,6 +19,30 @@ CACHE_DIR = '/home/alek/Desktop/cache' # Will store the page sources here.
 
 scholarSearchEngine = GoogleScholarSearch.GoogleScholarSearchEngine() # Convenient to search through Google Scholar.
 
+"""
+    ---------------------------------------------------------------------------
+    PLOT FORMATTING.
+    ---------------------------------------------------------------------------
+"""
+ticksFontSize = 18
+ticksFontSizeSmall = 16
+labelsFontSizeSmall = 24
+labelsFontSize = 30
+titleFontSize = 34
+
+legendFontSize = 16
+legendFontSizeSmall =14
+
+cm = matplotlib.pyplot.cm.get_cmap('jet')
+
+matplotlib.rc('xtick', labelsize=ticksFontSize)
+matplotlib.rc('ytick', labelsize=ticksFontSize)
+
+"""
+    ---------------------------------------------------------------------------
+    REGEXES.
+    ---------------------------------------------------------------------------
+"""
 " General regexes. "
 IntegersParern = re.compile("\d+") # Any integer.
 YearPattern = re.compile('\([0-9a-zA-Z\s]*\d{4}\)') # Any four-digit year encolsed in parentheses; may be preceded by a month in any format and also a day.
@@ -391,6 +414,8 @@ def findArticle(targetArticle):
             raise RuntimeError("Cannot find the base article due to captcha restriction.")
         else: # No idea what happened, print the whole source of the site.
             raise rntmeerr    
+    if len(papers)==0:
+        raise RuntimeError("Cannot find the base article due to captcha restriction.")
     
     # Find targetArticle from the many that will be displayed - will define articleID.
     articleID = 0 # Which article from the page is the one we're looking for.
@@ -405,6 +430,32 @@ def findArticle(targetArticle):
     print "Found article:\n{}\n when looking for:\n{}.".format(papers[articleID],targetArticle)
     return papers[articleID]
 
+def addCitingArticlesToNetwork(allArticles,targetIdx,network,trim=None):
+    """ Find Articles citing one of all the Articles. Add the corresponding 
+    edges to the netwrokx DiGraph.
+    
+    Attributes
+    ----------
+    allArticles - a list of Articles; will extend it with the Articles citing
+        the target Article.
+    targetIdx - int, index of input allArticles, will find the Articles citing
+        this Article.
+    network - networkx.classes.digraph.DiGraph to which the edges, corresponding
+        to the citation of target Article, will be added.
+    trim - int or None, how many citing articles to keep, will keep all of them
+        if trim is None. Will keep the first trim citing articles that are retreived.
+    """
+    citingArticles=getCitingArticles(allArticles[targetIdx],CACHE_DIR) # These areticles cite the target Article
+    if not trim is None: # Trim the citing articles if desired.
+        citingArticles=citingArticles[:trim]
+        
+    #TODO when adding edges and extending allArticles have to see which of the citingArticles already are in allArticles.
+    
+    # First add the edges to the network - need to have unchanged allArticles here.
+    # Account for the fact that we'll extend allArticles with the citingArticles (+len(allArticles)).
+    G.add_edges_from([(targetIdx,i+len(allArticles)) for i in range(len(citingArticles))])
+    allArticles.extend(citingArticles) # Record these here.
+    
 if __name__=="__main__": # If this is run as a stand-alone script run the verification/example searches.
     " Example search for many articles following search terms. "
 #    authors = ["langmuir", "tonks"] # Author names.
@@ -416,11 +467,48 @@ if __name__=="__main__": # If this is run as a stand-alone script run the verifi
 
     " Search for the desired article. "
     theArticle = Article.Article("The Theory of Collectors in Gaseous Discharges", ["H.M. Mott-Smith", "Irving Langmuir"], 1926, "Physical Review", doi="10.1103/physrev.28.727", volume=28, number=4, citeULikeID=2534514) # The desired article.
-    
-    " Get articles citing theArticle. "
     theFoundArticle=findArticle(theArticle)
-    citingArticles=getCitingArticles(theFoundArticle,CACHE_DIR)
-        
-    " Get articles related to theArticle. "
-    #TODO add a loop through results' pages and time.sleep here.
-#    relatedArticles = scholarSearchEngine.getArticlesFromPage(papers[articleID].relatedArticlesURL,papers[articleID].Keywords)
+    allArticles=[theFoundArticle] # This Article and all the ones that cite it.
+    G = networkx.DiGraph()
+    
+    # Find articles citing theFoundArticle. It's a popular one so only retian some of the ones that cite it,
+    addCitingArticlesToNetwork(allArticles,0, G, trim=20)
+    # Add more citing articles into the network.
+    addCitingArticlesToNetwork(allArticles,3, G, trim=20)
+    addCitingArticlesToNetwork(allArticles,4, G, trim=20)
+    
+    #TODO allArticles[3] cites both allArticles[0] and allArticles[4], should make a good test case to not reproducing entries in allArticles.
+    #https://scholar.google.co.uk/scholar?hl=en&as_sdt=2005&sciodt=0,5&cites=8829401031725111972&scipsc=
+    #https://scholar.google.co.uk/scholar?cites=2503450620904760701&as_sdt=2005&sciodt=0,5&hl=en
+    # In the present example, this means that allArticles[43] and allArticles[3] are the same.
+    
+    " Plot the network of who cites whom. "
+    values = [art.pubNoCitations for art in allArticles] # Colour the nodes by no. citations they have.
+    
+    # X axis is the publication year, Y is the index of the Article.
+    poses = dict(zip(range(len(allArticles)),[(allArticles[i].Year,i) for i in range(len(allArticles))]))
+#    poses = networkx.shell_layout(G) # Cleaner to look at but less information. Might also want to use spring_layout
+    
+    # Plot the network of which article cites which.
+    fig, ax = matplotlib.pyplot.subplots(1,figsize=(12,8))
+    matplotlib.pyplot.grid(linewidth=2)
+    ax.tick_params(axis='both',reset=False,which='both',length=5,width=1.5)
+    ax.set_xlabel(r'$Publication\ year$',fontsize=labelsFontSize)
+    ax.set_ylabel(r'$Article\ index$',fontsize=labelsFontSize)
+    ax.set_xlim(1900,2016)
+    ax.set_ylim(-0.5,len(allArticles)+0.5)
+    matplotlib.pyplot.subplots_adjust(left=0.1, right=1, top=0.95, bottom=0.1)
+    
+    nodePatches=networkx.draw_networkx_nodes(G, poses, cmap=matplotlib.pyplot.get_cmap('jet'), node_color=values, ax=ax)
+    networkx.draw_networkx_edges(G, poses, edge_color='k', arrows=True, ax=ax)
+    #    networkx.draw_networkx_labels(G, poses, dict(zip(range(len(allArticles)),[art.Title for art in allArticles])), font_size=labelsFontSize, ax=ax)
+    
+    # Add a colourbar to show the number of citations.
+    nodePatches.set_clim(0,max(values))
+    cbar=fig.colorbar(nodePatches,ticks=numpy.linspace(0,max(values),10),pad=0.01)
+    cbarBox=cbar.ax.get_position()
+    cbar.ax.set_position([cbarBox.x0, cbarBox.y0+cbarBox.height * 0.12, cbarBox.width*1., cbarBox.height * 0.75])
+    cbar.ax.set_ylabel(r'$No.\ citations$', size=labelsFontSize)
+    cbar.set_clim(0,max(values))
+    
+    fig.show()
