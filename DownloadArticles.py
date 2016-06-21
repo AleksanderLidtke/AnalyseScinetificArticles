@@ -8,11 +8,13 @@ Created on Sun Apr 19 20:46:55 2015
 """
 
 import os, requests, re, difflib, time, numpy, subprocess, networkx, matplotlib.pyplot
+import nltk, string, sklearn.metrics, sklearn.cluster
 try:
     from selenium import webdriver
 except ImportError:
     print "Install Selenium using sudo pip install selenium. If you aren't running Unix and can't use pip then you should abandon Windows."
 
+from nltk.util import ngrams
 import Article, GoogleScholarSearch
 
 CACHE_DIR = '/home/alek/Desktop/cache' # Will store the page sources here.
@@ -29,6 +31,7 @@ ticksFontSizeSmall = 16
 labelsFontSizeSmall = 24
 labelsFontSize = 30
 titleFontSize = 34
+graphLabelFontSize=8
 
 legendFontSize = 16
 legendFontSizeSmall =14
@@ -444,7 +447,7 @@ def addCitingArticlesToNetwork(allArticles,targetIdx,network,trim=None):
         to the citation of target Article, will be added.
     trim - int or None, how many citing articles to keep, will keep all of them
         if trim is None. Will keep the first trim citing articles that are retreived.
-    """
+    """#TODO consider adding trim to getCitingArticles to make downloading faster.
     citingArticlesTemp=getCitingArticles(allArticles[targetIdx],CACHE_DIR) # These articles cite the target Article
     
     citingArticles=[] # The citing articles without the ones already in allArticles.
@@ -466,7 +469,118 @@ def addCitingArticlesToNetwork(allArticles,targetIdx,network,trim=None):
     G.add_edges_from([(targetIdx,i+len(allArticles)) for i in range(len(citingArticles))])
     
     allArticles.extend(citingArticles) # Record these here.
+
+def findNGrams(tokens,lengths=[2,3,4,5]):
+    """ Given an iterable of tokens (a sequence of words and punctuation
+    find all N-grams of chosen lengths in those.
     
+    Arguments
+    ----------
+    tokens - list of strings with words.
+    lengths - list of ints with lengths of the N-grams that will be found.
+    
+    Returns
+    ----------
+    2-tuple containing:
+        * list of strings with N-grams
+        * list of ints with corresponding occurence counts
+    """
+    combinedGrams=[] # N-grams put together into single string tokens, not tuples of individual tokens.
+    
+    for length in lengths:
+        grams=ngrams(tokens, length)
+        for gram in grams:
+            # Combine the N-gram into a string (it's a tuple of words).
+            combinedGrams.append("".join([" "+i if not i.startswith("'") and 
+                i not in string.punctuation else i for i in gram]).strip())
+    
+    fdist=nltk.FreqDist(combinedGrams)
+    return combinedGrams,fdist.values()
+
+def getArticleKeywords(articles, maxLength=3):
+    """ Parse titles of a number of articles and extract keywords that occur
+    in them. A keyword is defined as a grouping of several words, with punctuation
+    and stopwords (*nltk.corpus.stopwords.words('english')*) removed. Will 
+    also add keywords from every input Article into the corresponding entry
+    in articles list.
+    
+    Arguments
+    ----------
+    articles - a list of Articles.
+    maxLength - int, the largest number of tokens per keyword.
+    
+    Returns
+    ----------
+    2-tuple with numpy.ndarrays of shape (len(articles),) with
+        * strings of keywords
+        * ints with the number of occurrences of the given keyword in all titles
+    
+    Example
+    ----------
+    "A general theory of the plasma of an arc" would return keywords:
+        ['A', 'general', 'theory', 'of', 'the', 'plasma', 'of', 'an', 'arc',
+        'A general', 'general theory', 'theory of', 'of the', 'the plasma',
+        'plasma of', 'of an', 'an arc', 'A general theory', 'general theory of',
+        'theory of the', 'of the plasma', 'the plasma of', 'plasma of an', 'of an arc']
+    Out of these, ['A','of','the','an','of the','of an'] would be filtered out.
+    """
+    
+    # Identify keywords.
+    tokens=[]
+    for title in [art.Title for art in articles]:
+        tokens.extend(nltk.wordpunct_tokenize(title))
+    
+    # Filter out meaningless words and punctuation.
+    tokens=filter(lambda s: not s.lower() in nltk.corpus.stopwords.words('english') and
+        not s in string.punctuation, tokens)
+
+    # Find keywords (length 1, 2, or 3) and how often they occur in all the titles.
+    keywords,frequencies=findNGrams(tokens,lengths=range(1,maxLength+1))
+    keywords=numpy.array(keywords)
+    frequencies=numpy.array(frequencies)
+    sortedIndices=frequencies.argsort()[::-1] # Go in descending order of frequencies.
+    frequencies=frequencies[sortedIndices]
+    keywords=keywords[sortedIndices]
+
+    # Assign keywords to Articles.
+    for i in range(len(articles)):
+        artTitleTokens=nltk.wordpunct_tokenize(articles[i].Title) # The tokens of this article's title.
+        # Filter out meaningless words and punctuation.
+        artTitleTokens=filter(lambda s: not s.lower() in nltk.corpus.stopwords.words('english') and
+            not s in string.punctuation, artTitleTokens)
+        
+        # Use the same algorithm but for this article only.
+        artKeywords,artFreq=findNGrams(artTitleTokens,lengths=[1,2,3])
+        articles[i].Keywords=artKeywords
+    
+    return keywords,frequencies
+
+def collectArticleFeatures(articles,keywords):
+    """ Given a list of articles and the desired keywords, find which keywords
+    appear in which article. Build a matrix that reflects this.
+    
+    Arguments
+    ----------
+    articles - a list of articles of len N with Articles, which had their keyword
+        fields filled.
+    keywords - a list of length K with keyword strings that will be identified
+        in the articles' titles.
+    
+    Returns
+    ----------
+    numpy.ndarray of shape(N,K), dtype=bool with 1s where a given keyword 
+        appears in the Article's title, 0s otherwise. Each row corresponds
+        to an Article, column to a keyword.
+    """
+    # See which keywords appear in which article.
+    articleFeatures=numpy.zeros((len(articles),len(keywords)),dtype=bool)
+    for i in range(len(articles)):
+        for j in range(len(keywords)):
+            if keywords[j] in articles[i].Keywords:
+                articleFeatures[i,j]=True # This keywords appears, if not leave artcileFeatures at 0.
+    
+    return articleFeatures
+
 if __name__=="__main__": # If this is run as a stand-alone script run the verification/example searches.
     " Example search for many articles following search terms. "
 #    authors = ["langmuir", "tonks"] # Author names.
@@ -482,39 +596,118 @@ if __name__=="__main__": # If this is run as a stand-alone script run the verifi
     allArticles=[theFoundArticle] # This Article and all the ones that cite it.
     G = networkx.DiGraph()
     
-    # Find articles citing theFoundArticle. It's a popular one so only retian some of the ones that cite it,
+    # Find articles citing theFoundArticle. It's a popular one so only retian some of the ones that cite it.
     addCitingArticlesToNetwork(allArticles,0, G, trim=20)
     # Add more citing articles into the network.
     addCitingArticlesToNetwork(allArticles,3, G, trim=20)
     addCitingArticlesToNetwork(allArticles,4, G, trim=20)
+    addCitingArticlesToNetwork(allArticles,21, G, trim=20)
     
-    " Plot the network of who cites whom. "
-    values = [art.pubNoCitations for art in allArticles] # Colour the nodes by no. citations they have.
+    """
+        --------------------------------------------------------------------
+        Plot the network of who cites whom. 
+        --------------------------------------------------------------------
+    """
+    noCitations = [art.pubNoCitations for art in allArticles] # Colour the nodes by no. citations they have.
     
     # X axis is the publication year, Y is the index of the Article.
-    poses = dict(zip(range(len(allArticles)),[(allArticles[i].Year,i) for i in range(len(allArticles))]))
-#    poses = networkx.shell_layout(G) # Cleaner to look at but less information. Might also want to use spring_layout
+#    poses = dict(zip(range(len(allArticles)),[(allArticles[i].Year,i) for i in range(len(allArticles))]))
+    poses = networkx.spring_layout(G) # Cleaner to look at but less information. Might also want to use shell_layout
     
     # Plot the network of which article cites which.
     fig, ax = matplotlib.pyplot.subplots(1,figsize=(12,8))
     matplotlib.pyplot.grid(linewidth=2)
     ax.tick_params(axis='both',reset=False,which='both',length=5,width=1.5)
-    ax.set_xlabel(r'$Publication\ year$',fontsize=labelsFontSize)
-    ax.set_ylabel(r'$Article\ index$',fontsize=labelsFontSize)
-    ax.set_xlim(1900,2016)
-    ax.set_ylim(-0.5,len(allArticles)+0.5)
+#    ax.set_xlabel(r'$Publication\ year$',fontsize=labelsFontSize)
+#    ax.set_ylabel(r'$Article\ index$',fontsize=labelsFontSize)
+#    ax.set_xlim(1900,2016)
+#    ax.set_ylim(-0.5,len(allArticles)+0.5)
     matplotlib.pyplot.subplots_adjust(left=0.1, right=1, top=0.95, bottom=0.1)
     
-    nodePatches=networkx.draw_networkx_nodes(G, poses, cmap=matplotlib.pyplot.get_cmap('jet'), node_color=values, ax=ax)
+    nodePatches=networkx.draw_networkx_nodes(G, poses, cmap=matplotlib.pyplot.get_cmap('jet'), node_color=noCitations, ax=ax)
     networkx.draw_networkx_edges(G, poses, edge_color='k', arrows=True, ax=ax)
     #    networkx.draw_networkx_labels(G, poses, dict(zip(range(len(allArticles)),[art.Title for art in allArticles])), font_size=labelsFontSize, ax=ax)
     
     # Add a colourbar to show the number of citations.
-    nodePatches.set_clim(0,max(values))
-    cbar=fig.colorbar(nodePatches,ticks=numpy.linspace(0,max(values),10),pad=0.01)
+    nodePatches.set_clim(0,max(noCitations))
+    cbar=fig.colorbar(nodePatches,ticks=numpy.linspace(0,max(noCitations),10),pad=0.01)
     cbarBox=cbar.ax.get_position()
     cbar.ax.set_position([cbarBox.x0, cbarBox.y0+cbarBox.height * 0.12, cbarBox.width*1., cbarBox.height * 0.75])
     cbar.ax.set_ylabel(r'$No.\ citations$', size=labelsFontSize)
-    cbar.set_clim(0,max(values))
+    cbar.set_clim(0,max(noCitations))
+    
+    fig.show()
+    
+    """
+        --------------------------------------------------------------------
+        Plot a network showing who cites whom and the keywords of the Articles.
+        --------------------------------------------------------------------
+    """
+    " Extract keywords from Articles' titles. "
+    keywords,frequencies=getArticleKeywords(allArticles, maxLength=3)
+    
+    # Trim to only keep the keywords that appear more than once.
+    keywords=keywords[numpy.where(frequencies>1)]
+    keywordIndices=range(keywords.size) # Need numerical values corresponding to every keyword.
+    frequencies=frequencies[numpy.where(frequencies>1)]
+    
+    # Build a matrix to look for clusters of articles with similar keywords.
+    articleFeatures=collectArticleFeatures(allArticles,keywords)
+
+    " Use sklearn to find no. clusters and which article belongs to which cluster. "
+    clusterSizes=range(2,4) # Try a few different cluster sizes.
+    scores=[] # Corresponding slihouette scores.
+    for n_clusters in clusterSizes:
+        clusterer = sklearn.cluster.KMeans(n_clusters=n_clusters)
+        cluster_labels = clusterer.fit_predict(articleFeatures)
+        # The silhouette_score gives the average value for all the samples.
+        # This gives a perspective into the density and separation of the formed clusters.
+        silhouette_avg = sklearn.metrics.silhouette_score(articleFeatures, cluster_labels)
+        print("For n_clusters =", n_clusters,"The average silhouette_score is :", silhouette_avg)
+        scores.append(silhouette_avg)
+    
+    # Use the best no. clusters.
+    clusterer=sklearn.cluster.KMeans(n_clusters=clusterSizes[scores.index(max(scores))])
+    cluster_labels=clusterer.fit_predict(articleFeatures)
+
+    " Histogram of keywords. "
+    fig, ax = matplotlib.pyplot.subplots(1,figsize=(12,8))
+    matplotlib.pyplot.grid(linewidth=2)
+    ax.tick_params(axis='both',reset=False,which='both',length=5,width=1.5)
+    ax.set_xlabel(r'$Keyword$',fontsize=labelsFontSize)
+    ax.set_ylabel(r'$Frequency$',fontsize=labelsFontSize)
+    matplotlib.pyplot.subplots_adjust(left=0.15, right=0.95, top=0.95, bottom=0.15)
+    bins = numpy.arange(0,max(frequencies)+1,1)
+    ax.bar(range(frequencies.size), frequencies, 0.5, color='k')
+    ax.set_xticklabels(keywords,rotation=45,fontsize=ticksFontSizeSmall)
+    ax.set_ylim(0,max(frequencies)+1)
+    box=ax.get_position()
+    ax.set_position([box.x0, box.y0+box.height*0.3, box.width, box.height*0.7])
+    fig.show()
+
+    " Dirgraph showing clusters of keywords, no citations as size, and citations as arrows. "
+    G = networkx.DiGraph()
+    G.add_edges_from(zip([0 for i in allArticles],[i for i in range(len(allArticles))])) # All articles cite the first one5
+    poses=networkx.graphviz_layout(G)
+    
+    # Plot the network of which article cites which and what keywords they have.
+    fig, ax = matplotlib.pyplot.subplots(1,figsize=(12,8))
+    matplotlib.pyplot.grid(linewidth=2)
+    ax.tick_params(axis='both',reset=False,which='both',length=5,width=1.5)
+    matplotlib.pyplot.subplots_adjust(left=0.1, right=1, top=0.95, bottom=0.1)
+    
+    nodePatches=networkx.draw_networkx_nodes(G, poses, cmap=matplotlib.pyplot.get_cmap('jet'), node_color=cluster_labels, node_size=noCitations, ax=ax)
+    networkx.draw_networkx_edges(G, poses, edge_color='k', arrows=True, ax=ax)
+    
+    # Draw keywords of every Article.
+    networkx.draw_networkx_labels(G, poses, dict(zip(range(len(allArticles)),[keywords[articleFeatures[i,:]] for i in range(len(allArticles))])), font_size=graphLabelFontSize, ax=ax)
+    
+    # Add a colourbar
+    nodePatches.set_clim(0,max(cluster_labels))
+    cbar=fig.colorbar(nodePatches,ticks=numpy.arange(0,max(cluster_labels)+1,2),pad=0.01)
+    cbarBox=cbar.ax.get_position()
+    cbar.ax.set_position([cbarBox.x0, cbarBox.y0+cbarBox.height * 0.12, cbarBox.width*1., cbarBox.height * 0.75])
+    cbar.ax.set_ylabel(r'$Cluster\ ID$', size=labelsFontSize)
+    cbar.set_clim(0,max(cluster_labels))
     
     fig.show()
