@@ -326,14 +326,18 @@ def getArticlesFromSource(source, searchTerms):
             
     return results # If everything's gone smoothly...
 
-def getCitingArticles(targetArticle,cacheDir):
+def getCitingArticles(targetArticle,cacheDir,trim=None):
     """ Get all the articles citing an Article. Try to use cached websites
     and cache them on the way.
     
     Arguments
     ----------
-    @param targetArticle - and instance of an Article, will get the Articles
+    targetArticle - and instance of an Article, will get the Articles
         that cite it.
+    cacheDir - string with the directory where the source of the parsed sites
+        will be saved to and read from.
+    trim - int or None, whether to limit the number of Articles that will be
+        retrieved and to how many. If None, all the Articles will be retrieved.
     
     Returns
     ----------
@@ -343,7 +347,11 @@ def getCitingArticles(targetArticle,cacheDir):
     citingArticlesURLParts = targetArticle.citingArticlesURL.split("?") # Need to split this to be able to display different result pages.
 
     # Can only display 50 pages with 20 results per page - might not be ableto get all citations.
-    noArticlesInSearch=min(50*20,targetArticle.pubNoCitations)
+    if trim is None:
+        noArticlesInSearch=min(50*20,targetArticle.pubNoCitations)
+    else: # For completness' sake, see if trim is definitely smaller than available no. citations.
+        noArticlesInSearch=min(50*20,targetArticle.pubNoCitations,trim)
+    
     for startArticleIndex in range(0,noArticlesInSearch,20): # The first article to be displayed on the Scholar page. Go every 20 articles to limit the number of requests we send.
         url = "https://scholar.google.com"+citingArticlesURLParts[0]+"?"+\
             "start={}&num=20&".format(startArticleIndex)+\
@@ -386,7 +394,10 @@ def getCitingArticles(targetArticle,cacheDir):
             print "Start IDX: {}, no. articles: {}".format(startArticleIndex,len(temp))
             citingArticles.extend(temp)
     
-    return citingArticles
+    if trim is None: # Return all the Articles.
+        return citingArticles
+    else: # if trim<20 we got all the 20 articles from the first page of results.
+        return citingArticles[:trim]
 
 def findArticle(targetArticle):
     """ Find an Article on Google Scholar that resembles the input Article
@@ -447,8 +458,8 @@ def addCitingArticlesToNetwork(allArticles,targetIdx,network,trim=None):
         to the citation of target Article, will be added.
     trim - int or None, how many citing articles to keep, will keep all of them
         if trim is None. Will keep the first trim citing articles that are retreived.
-    """#TODO consider adding trim to getCitingArticles to make downloading faster.
-    citingArticlesTemp=getCitingArticles(allArticles[targetIdx],CACHE_DIR) # These articles cite the target Article
+    """
+    citingArticlesTemp=getCitingArticles(allArticles[targetIdx],CACHE_DIR,trim) # These articles cite the target Article
     
     citingArticles=[] # The citing articles without the ones already in allArticles.
     citingIndices=[] # Indices of allArticles that cite targetIdx article.
@@ -491,8 +502,8 @@ def findNGrams(tokens,lengths=[2,3,4,5]):
         grams=ngrams(tokens, length)
         for gram in grams:
             # Combine the N-gram into a string (it's a tuple of words).
-            combinedGrams.append("".join([" "+i if not i.startswith("'") and 
-                i not in string.punctuation else i for i in gram]).strip())
+            combinedGrams.append("".join([" "+str(g) if not g.startswith("'") and 
+                g not in string.punctuation else g for g in gram]).strip())
     
     fdist=nltk.FreqDist(combinedGrams)
     return combinedGrams,fdist.values()
@@ -597,11 +608,11 @@ if __name__=="__main__": # If this is run as a stand-alone script run the verifi
     G = networkx.DiGraph()
     
     # Find articles citing theFoundArticle. It's a popular one so only retian some of the ones that cite it.
-    addCitingArticlesToNetwork(allArticles,0, G, trim=20)
+    addCitingArticlesToNetwork(allArticles,0, G, trim=10)
     # Add more citing articles into the network.
-    addCitingArticlesToNetwork(allArticles,3, G, trim=20)
-    addCitingArticlesToNetwork(allArticles,4, G, trim=20)
-    addCitingArticlesToNetwork(allArticles,21, G, trim=20)
+    addCitingArticlesToNetwork(allArticles,3, G, trim=10)
+    addCitingArticlesToNetwork(allArticles,4, G, trim=10)
+    addCitingArticlesToNetwork(allArticles,21, G, trim=10)
     
     """
         --------------------------------------------------------------------
@@ -686,8 +697,6 @@ if __name__=="__main__": # If this is run as a stand-alone script run the verifi
     fig.show()
 
     " Dirgraph showing clusters of keywords, no citations as size, and citations as arrows. "
-    G = networkx.DiGraph()
-    G.add_edges_from(zip([0 for i in allArticles],[i for i in range(len(allArticles))])) # All articles cite the first one5
     poses=networkx.graphviz_layout(G)
     
     # Plot the network of which article cites which and what keywords they have.
