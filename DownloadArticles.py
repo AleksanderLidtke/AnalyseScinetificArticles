@@ -473,11 +473,11 @@ def addCitingArticlesToNetwork(allArticles,targetIdx,network,trim=None):
         citingArticles=citingArticles[:trim]
         
     # Add edges between the target article and the exisitng allArticles.
-    G.add_edges_from([(targetIdx,i) for i in citingIndices])
+    network.add_edges_from([(targetIdx,i) for i in citingIndices])
     
     # First add the edges to the citingArticless - need to have unchanged allArticles here.
     # Account for the fact that we'll extend allArticles with the citingArticles (+len(allArticles)).
-    G.add_edges_from([(targetIdx,i+len(allArticles)) for i in range(len(citingArticles))])
+    network.add_edges_from([(targetIdx,i+len(allArticles)) for i in range(len(citingArticles))])
     
     allArticles.extend(citingArticles) # Record these here.
 
