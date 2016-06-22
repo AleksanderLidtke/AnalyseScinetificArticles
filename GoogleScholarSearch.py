@@ -8,8 +8,8 @@ I've updated it to BeautifulSoup4 and current syntax of Google Scholar source.
 Also started saving the results in a class object for compatibility with other code.
 
 @author: Alek
-@version: 1.0.5
-@since: Sat 11 Jun 2016
+@version: 1.0.6
+@since: Wed 22 Jun 2016
 
 CHANGELOG:
 Sat  3 Oct 2015 - 1.0.0 - Alek - Issued the first version based on a class from the Internet.
@@ -18,6 +18,7 @@ Mon  5 Oct 2015 - 1.0.1 - Alek - Now don't try to parse citations.
 Sat 11 Jun 2016 - 1.0.3 - Alek - Explicitly specified a parser for BeautifulSoup.
                 - 1.0.4 - Alek - Raise RuntimeError when getArticlesFromPage finds no Articles.
                 - 1.0.5 - Alek - Use BeautifulSoup to get the articles' titles.
+Wed 22 Jun 2016 - 1.0.6 - Alek - Started to convert from unicode to str when creating Articles. 
 """
 import httplib, urllib, re
 from bs4 import BeautifulSoup
