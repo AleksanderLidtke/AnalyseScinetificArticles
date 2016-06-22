@@ -226,7 +226,7 @@ class GoogleScholarSearchEngine:
                         print "-"*10
                     
                     " Save the results. "
-                    results.append( Article.Article(pubTitle,map(str,pubAuthors.split(',')),pubJournalYear,pubJournalName,tagList=searchTerms,abstract=pubAbstract) )
+                    results.append( Article.Article(pubTitle.encode('utf-8'),map(lambda x: x.encode('utf-8'),pubAuthors.split(',')),pubJournalYear,pubJournalName.encode('utf-8'),tagList=searchTerms,abstract=pubAbstract.encode('utf-8')) )
                     # All the URLs.
                     results[-1].fullURL = fullURL
                     results[-1].pubURL = pubURL
